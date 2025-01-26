@@ -5,7 +5,7 @@ import (
 	"regexp"
 )
 
-const _SIWE_DOMAIN = "(?P<domain>(([^ :/?#]+):)?(//([^ /?#]*))?([^ ?#]*)(\\?([^ #]*))?(#(.*))?) wants you to sign in with your Ethereum account:\\n"
+const _SIWE_DOMAIN = "https://(?P<domain>([^/?#]+)) wants you to sign in with your Ethereum account:\\n"
 const _SIWE_ADDRESS = "(?P<address>0x[a-zA-Z0-9]{40})\\n\\n"
 const _SIWE_STATEMENT = "((?P<statement>[^\\n]+)\\n)?\\n"
 const _RFC3986 = "(([^ :/?#]+):)?(//([^ /?#]*))?([^ ?#]*)(\\?([^ #]*))?(#(.*))?"
