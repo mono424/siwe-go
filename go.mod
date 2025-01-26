@@ -1,4 +1,4 @@
-module github.com/spruceid/siwe-go
+module github.com/mono424/siwe-go
 
 go 1.17
 
