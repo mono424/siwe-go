@@ -1,7 +1,6 @@
 package siwe
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"fmt"
@@ -262,8 +261,17 @@ func (m *Message) ValidAt(when time.Time) (bool, error) {
 	return true, nil
 }
 
-// ERC-1271 ABI definition
-const erc1271ABI = `[{"constant":true,"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"name":"","type":"bytes4"}],"payable":false,"stateMutability":"view","type":"function"}]`
+const isOwnerABI = `[{
+    "inputs": [
+        {"internalType": "address","name": "owner","type": "address"}
+    ],
+    "name": "isOwner",
+    "outputs": [
+        {"internalType": "bool","name": "","type": "bool"}
+    ],
+    "stateMutability": "view",
+    "type": "function"
+}]`
 
 func (m *Message) VerifyERC1271Signature(
 	client *ethclient.Client,
@@ -289,32 +297,38 @@ func (m *Message) VerifyERC1271Signature(
 		return nil, &InvalidSignature{"Failed to recover public key from signature"}
 	}
 
-	contractAddress := crypto.PubkeyToAddress(*pkey)
+	recoveredAddress := crypto.PubkeyToAddress(*pkey)
 
 	// Pack the ERC-1271 call data
-	erc1271, err := abi.JSON(strings.NewReader(erc1271ABI))
+	parsed, err := abi.JSON(strings.NewReader(isOwnerABI))
 	if err != nil {
 		return nil, err
 	}
 
 	// Call isValidSignature on the contract
-	messageHash := m.eip191Hash()
-	data, err := erc1271.Pack("isValidSignature", messageHash, sigBytes)
+	data, err := parsed.Pack("isOwner", recoveredAddress)
 	if err != nil {
 		return nil, err
 	}
 
 	// Execute the contract call
 	result, err := client.CallContract(context.Background(), ethereum.CallMsg{
-		To:   &contractAddress,
+		To:   &m.address,
 		Data: data,
 	}, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	if !bytes.Equal(result, m.address.Bytes()) {
-		return nil, &InvalidSignature{"Signer address must match message address"}
+	// Unpack the result
+	var isOwner bool
+	err = parsed.UnpackIntoInterface(&isOwner, "isOwner", result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack result: %v", err)
+	}
+
+	if !isOwner {
+		return nil, fmt.Errorf("signature verification failed: not an owner")
 	}
 
 	return pkey, nil
