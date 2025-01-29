@@ -286,8 +286,10 @@ func (m *Message) VerifyERC1271Signature(
 		return nil, &InvalidSignature{"Failed to decode signature"}
 	}
 
-	// Ref:https://github.com/ethereum/go-ethereum/blob/55599ee95d4151a2502465e0afc7c47bd1acba77/internal/ethapi/api.go#L442
-	sigBytes[64] %= 27
+	// Fix V value
+	if sigBytes[64] >= 27 {
+		sigBytes[64] -= 27
+	}
 	if sigBytes[64] != 0 && sigBytes[64] != 1 {
 		return nil, &InvalidSignature{"Invalid signature recovery byte"}
 	}
@@ -306,13 +308,16 @@ func (m *Message) VerifyERC1271Signature(
 	}
 
 	// Call isValidSignature on the contract
-	data, err := parsed.Pack("isOwner", [1]common.Address{recoveredAddress})
+	data, err := parsed.Pack("isOwner", recoveredAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	// Execute the contract call
-	result, err := client.CallContract(context.Background(), ethereum.CallMsg{
+	// Execute the contract call with timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := client.CallContract(ctx, ethereum.CallMsg{
 		To:   &m.address,
 		Data: data,
 	}, nil)
