@@ -299,7 +299,7 @@ func (m *Message) VerifyERC1271Signature(
 
 	// Call isValidSignature on the contract
 	messageHash := m.eip191Hash()
-	data, err := erc1271.Pack("isValidSignature", messageHash, signature)
+	data, err := erc1271.Pack("isValidSignature", messageHash, sigBytes)
 	if err != nil {
 		return nil, err
 	}
