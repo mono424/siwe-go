@@ -1,8 +1,13 @@
 package siwe
 
 import (
+	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"fmt"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"net/url"
 	"strconv"
 	"strings"
@@ -255,6 +260,64 @@ func (m *Message) ValidAt(when time.Time) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// ERC-1271 ABI definition
+const erc1271ABI = `[{"constant":true,"inputs":[{"name":"_hash","type":"bytes32"},{"name":"_signature","type":"bytes"}],"name":"isValidSignature","outputs":[{"name":"","type":"bytes4"}],"payable":false,"stateMutability":"view","type":"function"}]`
+
+func (m *Message) VerifyERC1271Signature(
+	client *ethclient.Client,
+	signature string,
+) (*ecdsa.PublicKey, error) {
+	if isEmpty(&signature) {
+		return nil, &InvalidSignature{"Signature cannot be empty"}
+	}
+
+	sigBytes, err := hexutil.Decode(signature)
+	if err != nil {
+		return nil, &InvalidSignature{"Failed to decode signature"}
+	}
+
+	// Ref:https://github.com/ethereum/go-ethereum/blob/55599ee95d4151a2502465e0afc7c47bd1acba77/internal/ethapi/api.go#L442
+	sigBytes[64] %= 27
+	if sigBytes[64] != 0 && sigBytes[64] != 1 {
+		return nil, &InvalidSignature{"Invalid signature recovery byte"}
+	}
+
+	pkey, err := crypto.SigToPub(m.eip191Hash().Bytes(), sigBytes)
+	if err != nil {
+		return nil, &InvalidSignature{"Failed to recover public key from signature"}
+	}
+
+	contractAddress := crypto.PubkeyToAddress(*pkey)
+
+	// Pack the ERC-1271 call data
+	erc1271, err := abi.JSON(strings.NewReader(erc1271ABI))
+	if err != nil {
+		return nil, err
+	}
+
+	// Call isValidSignature on the contract
+	messageHash := m.eip191Hash()
+	data, err := erc1271.Pack("isValidSignature", messageHash, signature)
+	if err != nil {
+		return nil, err
+	}
+
+	// Execute the contract call
+	result, err := client.CallContract(context.Background(), ethereum.CallMsg{
+		To:   &contractAddress,
+		Data: data,
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if !bytes.Equal(result, m.address.Bytes()) {
+		return nil, &InvalidSignature{"Signer address must match message address"}
+	}
+
+	return pkey, nil
 }
 
 // VerifyEIP191 validates the integrity of the object by matching it's signature.
