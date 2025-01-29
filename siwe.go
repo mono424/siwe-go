@@ -303,7 +303,8 @@ func (m *Message) VerifyERC1271Signature(
 	}
 
 	recoveredAddress := crypto.PubkeyToAddress(*pkey)*/
-	recoveredAddress, err := RecoverPublicKey(m.eip191Hash().Bytes(), sigBytes)
+	recoveredAddressBytes, err := RecoverPublicKey(m.eip191Hash().Bytes(), sigBytes)
+	recoveredAddress := common.BytesToAddress(recoveredAddressBytes)
 
 	// Pack the ERC-1271 call data
 	parsed, err := abi.JSON(strings.NewReader(isOwnerABI))
