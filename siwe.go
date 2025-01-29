@@ -3,10 +3,13 @@ package siwe
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/hex"
 	"fmt"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"math/big"
 	"net/url"
 	"strconv"
 	"strings"
@@ -294,12 +297,13 @@ func (m *Message) VerifyERC1271Signature(
 		return nil, &InvalidSignature{"Invalid signature recovery byte"}
 	}
 
-	pkey, err := crypto.SigToPub(m.eip191Hash().Bytes(), sigBytes)
+	/*pkey, err := crypto.SigToPub(m.eip191Hash().Bytes(), sigBytes)
 	if err != nil {
 		return nil, &InvalidSignature{"Failed to recover public key from signature"}
 	}
 
-	recoveredAddress := crypto.PubkeyToAddress(*pkey)
+	recoveredAddress := crypto.PubkeyToAddress(*pkey)*/
+	recoveredAddress, err := RecoverPublicKey(m.eip191Hash().Bytes(), sigBytes)
 
 	// Pack the ERC-1271 call data
 	parsed, err := abi.JSON(strings.NewReader(isOwnerABI))
@@ -308,7 +312,7 @@ func (m *Message) VerifyERC1271Signature(
 	}
 
 	// Call isValidSignature on the contract
-	data, err := parsed.Pack("isOwner", m.address)
+	data, err := parsed.Pack("isOwner", recoveredAddress)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +322,7 @@ func (m *Message) VerifyERC1271Signature(
 	defer cancel()
 
 	result, err := client.CallContract(ctx, ethereum.CallMsg{
-		To:   &recoveredAddress,
+		To:   &m.address,
 		Data: data,
 	}, nil)
 	if err != nil {
@@ -336,7 +340,7 @@ func (m *Message) VerifyERC1271Signature(
 		return nil, fmt.Errorf("signature verification failed: not an owner")
 	}
 
-	return pkey, nil
+	return nil, nil
 }
 
 // VerifyEIP191 validates the integrity of the object by matching it's signature.
@@ -453,4 +457,107 @@ func (m *Message) prepareMessage() string {
 
 func (m *Message) String() string {
 	return m.prepareMessage()
+}
+
+type Signature struct {
+	R       string
+	S       string
+	V       *big.Int
+	YParity *big.Int
+}
+
+func toRecoveryBit(v int64) int {
+	if v >= 27 {
+		v -= 27
+	}
+	if v >= 2 {
+		v -= 2
+	}
+	return int(v)
+}
+
+func hexToBigInt(hexStr string) (*big.Int, error) {
+	if len(hexStr) >= 2 && hexStr[:2] == "0x" {
+		hexStr = hexStr[2:]
+	}
+	n := new(big.Int)
+	n, ok := n.SetString(hexStr, 16)
+	if !ok {
+		return nil, fmt.Errorf("invalid hex string: %s", hexStr)
+	}
+	return n, nil
+}
+
+func RecoverPublicKey(hash []byte, sig interface{}) ([]byte, error) {
+	var r, s *big.Int
+	var v int
+
+	switch signature := sig.(type) {
+	case Signature:
+		// Handle structured signature
+		var err error
+		r, err = hexToBigInt(signature.R)
+		if err != nil {
+			return nil, fmt.Errorf("invalid R value: %v", err)
+		}
+
+		s, err = hexToBigInt(signature.S)
+		if err != nil {
+			return nil, fmt.Errorf("invalid S value: %v", err)
+		}
+
+		// Use YParity if available, otherwise use V
+		if signature.YParity != nil {
+			v = toRecoveryBit(signature.YParity.Int64())
+		} else if signature.V != nil {
+			v = toRecoveryBit(signature.V.Int64())
+		} else {
+			return nil, fmt.Errorf("missing V or YParity")
+		}
+	case string:
+		// Handle hex string signature
+		if len(signature) < 132 { // 0x + 130 chars
+			return nil, fmt.Errorf("invalid signature length")
+		}
+
+		sigBytes, err := hex.DecodeString(signature[2:])
+		if err != nil {
+			return nil, fmt.Errorf("invalid signature hex: %v", err)
+		}
+
+		r = new(big.Int).SetBytes(sigBytes[:32])
+		s = new(big.Int).SetBytes(sigBytes[32:64])
+		v = toRecoveryBit(int64(sigBytes[64]))
+	case []byte:
+		// Handle byte array signature
+		if len(signature) < 65 {
+			return nil, fmt.Errorf("invalid signature length")
+		}
+
+		r = new(big.Int).SetBytes(signature[:32])
+		s = new(big.Int).SetBytes(signature[32:64])
+		v = toRecoveryBit(int64(signature[64]))
+	default:
+		return nil, fmt.Errorf("unsupported signature type")
+	}
+
+	// Create signature bytes
+	sigBytes := make([]byte, 65)
+	r.FillBytes(sigBytes[:32])
+	s.FillBytes(sigBytes[32:64])
+	sigBytes[64] = byte(v)
+
+	// Recover the public key
+	pubKey, err := crypto.Ecrecover(hash, sigBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to recover public key: %v", err)
+	}
+
+	// Verify the recovery
+	_, err = secp256k1.RecoverPubkey(hash, sigBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify recovered public key: %v", err)
+	}
+
+	return pubKey, nil
 }
