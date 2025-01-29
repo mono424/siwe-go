@@ -308,7 +308,7 @@ func (m *Message) VerifyERC1271Signature(
 	}
 
 	// Call isValidSignature on the contract
-	data, err := parsed.Pack("isOwner", recoveredAddress)
+	data, err := parsed.Pack("isOwner", m.address)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func (m *Message) VerifyERC1271Signature(
 	defer cancel()
 
 	result, err := client.CallContract(ctx, ethereum.CallMsg{
-		To:   &m.address,
+		To:   &recoveredAddress,
 		Data: data,
 	}, nil)
 	if err != nil {
