@@ -306,7 +306,7 @@ func (m *Message) VerifyERC1271Signature(
 	}
 
 	// Call isValidSignature on the contract
-	data, err := parsed.Pack("isOwner", []common.Address{recoveredAddress})
+	data, err := parsed.Pack("isOwner", [1]common.Address{recoveredAddress})
 	if err != nil {
 		return nil, err
 	}
