@@ -26,7 +26,11 @@ func validateDomain(domain *string) (bool, error) {
 		return false, &InvalidMessage{"`domain` must not be empty"}
 	}
 
-	validateDomain, err := url.Parse(fmt.Sprintf("https://%s", *domain))
+	urlString := *domain
+	if !strings.HasPrefix(urlString, "http://") && !strings.HasPrefix(urlString, "https://") {
+		urlString = fmt.Sprintf("https://%s", *domain)
+	}
+	validateDomain, err := url.Parse(urlString)
 	if err != nil {
 		return false, &InvalidMessage{"Invalid format for field `domain`"}
 	}
