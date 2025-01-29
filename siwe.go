@@ -13,14 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-func buildAuthority(uri *url.URL) string {
-	authority := uri.Host
-	if uri.User != nil {
-		authority = fmt.Sprintf("%s@%s", uri.User.String(), authority)
-	}
-	return authority
-}
-
 func validateDomain(domain *string) (bool, error) {
 	if isEmpty(domain) {
 		return false, &InvalidMessage{"`domain` must not be empty"}
@@ -30,13 +22,8 @@ func validateDomain(domain *string) (bool, error) {
 	if !strings.HasPrefix(urlString, "http://") && !strings.HasPrefix(urlString, "https://") {
 		urlString = fmt.Sprintf("https://%s", *domain)
 	}
-	validateDomain, err := url.Parse(urlString)
+	_, err := url.Parse(urlString)
 	if err != nil {
-		return false, &InvalidMessage{"Invalid format for field `domain`"}
-	}
-
-	authority := buildAuthority(validateDomain)
-	if authority != *domain {
 		return false, &InvalidMessage{"Invalid format for field `domain`"}
 	}
 
